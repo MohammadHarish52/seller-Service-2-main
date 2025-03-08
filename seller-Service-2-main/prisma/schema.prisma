@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -38,18 +35,18 @@ enum ProductCategory {
 }
 
 model Product {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  price       Float
-  stock       Int      @default(0)
-  images      String[] @default([])
-  category    String?
-  subcategory String?  
-  sizes       String[] @default([]) 
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  sellerId    String
-  seller      Seller   @relation(fields: [sellerId], references: [id])
-}
+  id            String         @id @default(uuid())
+  name          String
+  description   String?
+  mrpPrice      Float         // Original/MRP price
+  sellingPrice  Float         // Actual selling price
+  images        String[]      @default([])
+  category      String?
+  subcategory   String?  
+  sizeQuantities Json         // Store size quantities as {XS: number, S: number, M: number, L: number, XL: number}
+  isActive      Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  sellerId      String
+  seller        Seller        @relation(fields: [sellerId], references: [id])
+} 

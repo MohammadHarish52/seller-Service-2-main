@@ -9,11 +9,29 @@ const prisma = new PrismaClient();
 router.post("/", authMiddleware, async (req, res) => {
   try {
     const sellerId = req.sellerId;
-    const { name, description, price, stock, images, category, subcategory, sizes } = req.body;
+    const {
+      name,
+      description,
+      mrpPrice,
+      sellingPrice,
+      images,
+      category,
+      subcategory,
+      sizeQuantities,
+    } = req.body;
 
     // Validate required fields
-    if (!name || !price || !category || !subcategory) {
-      return res.status(400).json({ message: "Name, price, category, and subcategory are required" });
+    if (!name || !mrpPrice || !sellingPrice) {
+      return res
+        .status(400)
+        .json({ message: "Name, MRP price, and selling price are required" });
+    }
+
+    // Validate that selling price is not greater than MRP
+    if (parseFloat(sellingPrice) > parseFloat(mrpPrice)) {
+      return res
+        .status(400)
+        .json({ message: "Selling price cannot be greater than MRP" });
     }
 
     // Create the product
@@ -21,13 +39,19 @@ router.post("/", authMiddleware, async (req, res) => {
       data: {
         name,
         description,
-        price: parseFloat(price),
-        stock: stock ? parseInt(stock) : 0,
+        mrpPrice: parseFloat(mrpPrice),
+        sellingPrice: parseFloat(sellingPrice),
         images,
         category,
-        sellerId,
         subcategory,
-        sizes,
+        sellerId,
+        sizeQuantities: sizeQuantities || {
+          XS: 0,
+          S: 0,
+          M: 0,
+          L: 0,
+          XL: 0,
+        },
       },
     });
 
@@ -100,7 +124,17 @@ router.put("/:productId", authMiddleware, async (req, res) => {
   try {
     const { productId } = req.params;
     const sellerId = req.sellerId;
-    const { name, description, price, stock, images, category, isActive, subcategory, sizes } = req.body;
+    const {
+      name,
+      description,
+      mrpPrice,
+      sellingPrice,
+      images,
+      category,
+      subcategory,
+      sizeQuantities,
+      isActive,
+    } = req.body;
 
     // Check if product exists and belongs to the seller
     const existingProduct = await prisma.product.findUnique({
@@ -119,6 +153,17 @@ router.put("/:productId", authMiddleware, async (req, res) => {
         .json({ message: "Unauthorized to update this product" });
     }
 
+    // Validate that selling price is not greater than MRP if both are being updated
+    if (
+      mrpPrice &&
+      sellingPrice &&
+      parseFloat(sellingPrice) > parseFloat(mrpPrice)
+    ) {
+      return res
+        .status(400)
+        .json({ message: "Selling price cannot be greater than MRP" });
+    }
+
     // Update the product
     const updatedProduct = await prisma.product.update({
       where: {
@@ -127,13 +172,13 @@ router.put("/:productId", authMiddleware, async (req, res) => {
       data: {
         name,
         description,
-        price: price ? parseFloat(price) : undefined,
-        stock: stock !== undefined ? parseInt(stock) : undefined,
+        mrpPrice: mrpPrice ? parseFloat(mrpPrice) : undefined,
+        sellingPrice: sellingPrice ? parseFloat(sellingPrice) : undefined,
         images,
         category,
-        isActive,
         subcategory,
-        sizes,
+        sizeQuantities: sizeQuantities || undefined,
+        isActive,
       },
     });
 
