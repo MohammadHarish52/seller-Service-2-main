@@ -7,14 +7,7 @@ const prisma = new PrismaClient();
 // Get all active products for public viewing
 router.get("/products/active", async (req, res) => {
   try {
-    const products = await prisma.product.findMany({
-      where: {
-        isActive: true,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+    const products = await prisma.product.findMany({});
 
     res.json(products);
   } catch (error) {

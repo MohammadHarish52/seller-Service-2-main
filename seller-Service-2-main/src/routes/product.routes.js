@@ -1,9 +1,177 @@
 const express = require("express");
 const { PrismaClient } = require("@prisma/client");
 const authMiddleware = require("../middleware/auth.middleware");
+const multer = require("multer");
+const { createClient } = require("@supabase/supabase-js");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+const os = require("os");
 
 const router = express.Router();
 const prisma = new PrismaClient();
+
+// Initialize Supabase client
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
+const BUCKET_NAME = process.env.SUPABASE_BUCKET_NAME || "product_images";
+
+// Configure multer for file uploads - use system temp directory
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    // Use system temp directory instead of a folder in the project
+    const tempDir = path.join(os.tmpdir(), "product-uploads");
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    cb(null, tempDir);
+  },
+  filename: function (req, file, cb) {
+    // Create a unique filename to avoid collisions
+    const uniqueSuffix = crypto.randomBytes(16).toString("hex");
+    const fileExt = path.extname(file.originalname);
+    cb(null, `${uniqueSuffix}${fileExt}`);
+  },
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept only images
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed!"), false);
+    }
+  },
+});
+
+// Helper function to upload file to Supabase
+async function uploadToSupabase(filePath, fileName) {
+  try {
+    const fileBuffer = fs.readFileSync(filePath);
+
+    const { data, error } = await supabase.storage
+      .from(BUCKET_NAME)
+      .upload(`products/${fileName}`, fileBuffer, {
+        contentType: "image/*",
+        upsert: true,
+      });
+
+    if (error) throw error;
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from(BUCKET_NAME)
+      .getPublicUrl(`products/${fileName}`);
+
+    // Clean up local file immediately after upload
+    try {
+      fs.unlinkSync(filePath);
+    } catch (cleanupError) {
+      console.error("Error cleaning up temp file:", cleanupError);
+      // Continue execution even if cleanup fails
+    }
+
+    return urlData.publicUrl;
+  } catch (error) {
+    // Attempt to clean up in case of error too
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch (cleanupError) {
+      console.error(
+        "Error cleaning up temp file after upload error:",
+        cleanupError
+      );
+    }
+
+    console.error("Error uploading to Supabase:", error);
+    throw error;
+  }
+}
+
+// Get all products (public)
+router.get("/all", async (req, res) => {
+  try {
+    const products = await prisma.product.findMany({
+      where: {
+        isActive: true,
+      },
+      include: {
+        seller: {
+          select: {
+            shopName: true,
+            city: true,
+            state: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    res.json(products);
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Error fetching products", error: error.message });
+  }
+});
+
+// Upload images endpoint
+router.post(
+  "/upload-images",
+  authMiddleware,
+  upload.array("images", 5),
+  async (req, res) => {
+    try {
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ message: "No files uploaded" });
+      }
+
+      const uploadPromises = req.files.map((file) =>
+        uploadToSupabase(file.path, file.filename)
+      );
+
+      const imageUrls = await Promise.all(uploadPromises);
+
+      res.status(200).json({
+        message: "Images uploaded successfully",
+        imageUrls,
+      });
+    } catch (error) {
+      console.error("Upload error:", error);
+
+      // Clean up any remaining files in case of error
+      if (req.files && req.files.length > 0) {
+        req.files.forEach((file) => {
+          try {
+            if (fs.existsSync(file.path)) {
+              fs.unlinkSync(file.path);
+            }
+          } catch (cleanupError) {
+            console.error(
+              "Error cleaning up temp file after request error:",
+              cleanupError
+            );
+          }
+        });
+      }
+
+      res.status(500).json({
+        message: "Error uploading images",
+        error: error.message,
+      });
+    }
+  }
+);
 
 // Create a new product
 router.post("/", authMiddleware, async (req, res) => {
@@ -41,7 +209,7 @@ router.post("/", authMiddleware, async (req, res) => {
         description,
         mrpPrice: parseFloat(mrpPrice),
         sellingPrice: parseFloat(sellingPrice),
-        images,
+        images: images || [],
         category,
         subcategory,
         sellerId,
@@ -214,6 +382,28 @@ router.delete("/:productId", authMiddleware, async (req, res) => {
       return res
         .status(403)
         .json({ message: "Unauthorized to delete this product" });
+    }
+
+    // Delete associated images from Supabase if they exist
+    if (existingProduct.images && existingProduct.images.length > 0) {
+      try {
+        // Extract filenames from URLs
+        const filesToDelete = existingProduct.images.map((url) => {
+          const urlParts = url.split("/");
+          return `products/${urlParts[urlParts.length - 1]}`;
+        });
+
+        // Delete files from Supabase
+        const { data, error } = await supabase.storage
+          .from(BUCKET_NAME)
+          .remove(filesToDelete);
+
+        if (error) {
+          console.error("Error deleting images from Supabase:", error);
+        }
+      } catch (error) {
+        console.error("Error processing image deletion:", error);
+      }
     }
 
     // Delete the product
