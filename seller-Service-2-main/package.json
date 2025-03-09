@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "build": "nodemon src/server.js"
+    "build": "prisma generate && node src/server.js"
   },
   "keywords": [
     "seller",
