@@ -14,7 +14,7 @@ app.use(
   cors({
     origin: ["http://localhost:3000", "https://www.fastandfab.in"],
     credentials: true,
-    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
