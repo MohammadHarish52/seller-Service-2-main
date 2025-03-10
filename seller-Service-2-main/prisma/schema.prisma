@@ -11,21 +11,31 @@ datasource db {
 }
 
 model Seller {
-  id          String    @id @default(uuid())
-  phone       String    @unique
-  password    String
-  shopName    String?
-  ownerName   String?
-  address     String?
-  city        String?
-  state       String?
-  pincode     String?
-  openTime    String?
-  closeTime   String?
-  categories  String[]  @default([])
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  products    Product[]
+  id            String         @id @default(uuid())
+  phone         String         @unique
+  password      String
+  shopName      String?
+  ownerName     String?
+  address       String?
+  city          String?
+  state         String?
+  pincode       String?
+  openTime      String?
+  closeTime     String?
+  categories    String[]       @default([])
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  products      Product[]
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  sellerId  String
+  seller    Seller   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 }
 
 enum ProductCategory {
